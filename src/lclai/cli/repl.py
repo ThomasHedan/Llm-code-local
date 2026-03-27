@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from rich.console import Console
 
@@ -12,6 +13,9 @@ from ..llm.messages import Message, Role
 from ..tools.registry import ToolRegistry
 from ..context.manager import ContextManager
 from .display import Display
+
+if TYPE_CHECKING:
+    from ..doc_reader.indexer import DocIndex
 
 # Maximum tool-use iterations per user turn to prevent infinite loops
 MAX_TOOL_ITERATIONS = 20
@@ -27,6 +31,7 @@ You have access to these tools:
 - bash: Execute shell commands
 - glob_search: Find files by pattern
 - grep_search: Search file contents
+- doc_examples: Search real code examples from indexed package documentation
 
 Guidelines:
 - Read files before editing them
@@ -51,6 +56,7 @@ class REPL:
         tools: ToolRegistry,
         context: ContextManager,
         display: Display | None = None,
+        doc_index: "DocIndex | None" = None,
     ) -> None:
         """Initialize the REPL.
 
@@ -59,11 +65,13 @@ class REPL:
             tools: Registry of available tools.
             context: Context/token budget manager.
             display: Display helper (created automatically if None).
+            doc_index: Optional DocIndex for /index and /docstats commands.
         """
         self.llm = llm
         self.tools = tools
         self.context = context
         self.display = display or Display()
+        self._doc_index = doc_index
         self._running = False
 
     # ------------------------------------------------------------------
@@ -186,6 +194,14 @@ class REPL:
             self._cmd_switch_model(arg)
             return True
 
+        if cmd == "/index":
+            self._cmd_index(arg)
+            return True
+
+        if cmd == "/docstats":
+            self._cmd_docstats()
+            return True
+
         return False
 
     def _cmd_list_models(self) -> None:
@@ -195,6 +211,74 @@ class REPL:
             self.display.print_models(models, self.llm.model_name)
         except Exception as e:
             self.display.print_error(f"Failed to list models: {e}")
+
+    def _cmd_index(self, arg: str) -> None:
+        """Handle the /index <package|path> command.
+
+        Scans an installed package or local directory and adds results to the
+        documentation index.
+
+        Args:
+            arg: Package name (e.g. 'requests') or directory path (e.g. './src').
+        """
+        if not arg:
+            self.display.print_info(
+                "Usage: /index <package>  or  /index <./path>\n"
+                "  /index requests     — scan installed 'requests' package\n"
+                "  /index ./src        — scan local directory"
+            )
+            return
+
+        if self._doc_index is None:
+            self.display.print_error("Documentation index is not available in this session.")
+            return
+
+        from ..doc_reader.scanner import scan_directory, scan_installed_package
+
+        target = arg.strip()
+        p = Path(target)
+
+        self.display.print_info(f"Indexing {target!r} ...")
+        try:
+            if p.exists() and p.is_dir():
+                entries = scan_directory(str(p))
+            else:
+                entries = scan_installed_package(target)
+
+            self._doc_index.add_many(entries)
+            stats = self._doc_index.stats()
+            self.display.print_success(
+                f"Indexed {len(entries)} entries from {target!r}. "
+                f"Total: {stats['total_entries']} entries, "
+                f"{stats['entries_with_examples']} with examples."
+            )
+        except ValueError as e:
+            self.display.print_error(str(e))
+        except Exception as e:
+            self.display.print_error(f"Failed to index {target!r}: {e}")
+
+    def _cmd_docstats(self) -> None:
+        """Handle the /docstats command — show index statistics."""
+        if self._doc_index is None:
+            self.display.print_error("Documentation index is not available in this session.")
+            return
+
+        stats = self._doc_index.stats()
+        lines = [
+            f"  Total entries:        {stats['total_entries']}",
+            f"  Entries with examples:{stats['entries_with_examples']}",
+            f"  Total examples:       {stats['total_examples']}",
+            f"  Indexed packages:     {', '.join(stats['indexed_packages']) or '(none)'}",  # type: ignore[arg-type]
+        ]
+        from rich.panel import Panel
+        self.display.console.print(
+            Panel(
+                "\n".join(lines),
+                title="Doc Index Stats",
+                border_style="dim",
+                padding=(0, 1),
+            )
+        )
 
     def _cmd_switch_model(self, model_name: str) -> None:
         """Handle the /model <name> command.

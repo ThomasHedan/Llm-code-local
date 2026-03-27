@@ -74,6 +74,8 @@ class Display:
             ("/model <name>", "Switch to a different Ollama model"),
             ("/models", "List available Ollama models"),
             ("/context", "Show token usage statistics"),
+            ("/index <pkg|path>", "Index a package or directory for doc examples"),
+            ("/docstats", "Show documentation index statistics"),
             ("/exit, /quit", "Exit lclai"),
         ]
         lines = [f"  [bold {COLOR_TOOL}]{cmd:<20}[/] {desc}" for cmd, desc in commands]

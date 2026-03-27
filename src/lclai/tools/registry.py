@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .base import BaseTool, ToolResult
 from .file_read import ReadFileTool
@@ -11,6 +11,9 @@ from .file_edit import EditFileTool
 from .bash import BashTool
 from .glob_search import GlobSearchTool
 from .grep_search import GrepSearchTool
+
+if TYPE_CHECKING:
+    from ..doc_reader.indexer import DocIndex
 
 
 class ToolRegistry:
@@ -105,8 +108,12 @@ class ToolRegistry:
         return f"ToolRegistry([{names}])"
 
 
-def get_default_tools() -> ToolRegistry:
+def get_default_tools(doc_index: "DocIndex | None" = None) -> ToolRegistry:
     """Create and return a ToolRegistry pre-loaded with all default tools.
+
+    Args:
+        doc_index: Optional DocIndex instance. If provided, the DocExamplesTool
+            is registered so the LLM can query indexed documentation examples.
 
     Returns:
         ToolRegistry with all built-in tools registered.
@@ -118,4 +125,9 @@ def get_default_tools() -> ToolRegistry:
     registry.register(BashTool())
     registry.register(GlobSearchTool())
     registry.register(GrepSearchTool())
+
+    if doc_index is not None:
+        from .doc_examples import DocExamplesTool
+        registry.register(DocExamplesTool(doc_index))
+
     return registry

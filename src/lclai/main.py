@@ -56,6 +56,7 @@ def cli(model: str, base_url: str, max_tokens: int) -> None:
     # Defer heavy imports so --help and --version are instant
     from .llm.ollama import OllamaClient, OllamaError
     from .tools.registry import get_default_tools
+    from .doc_reader.indexer import DocIndex
     from .context.manager import ContextManager
     from .cli.display import Display
     from .cli.repl import REPL
@@ -72,14 +73,17 @@ def cli(model: str, base_url: str, max_tokens: int) -> None:
         display.print_error(str(e))
         sys.exit(1)
 
-    # Initialize tools
-    tools = get_default_tools()
+    # Initialize doc index (shared across the session)
+    doc_index = DocIndex()
+
+    # Initialize tools (doc_index enables the doc_examples tool)
+    tools = get_default_tools(doc_index=doc_index)
 
     # Initialize context manager
     context = ContextManager(max_tokens=max_tokens)
 
-    # Start the REPL
-    repl = REPL(llm=llm, tools=tools, context=context, display=display)
+    # Start the REPL (pass doc_index so /index and /docstats commands work)
+    repl = REPL(llm=llm, tools=tools, context=context, display=display, doc_index=doc_index)
 
     try:
         repl.run()
